@@ -1,8 +1,13 @@
 # predict.py
 
 import argparse
+import os
+import random
+
 import torch
-from common import data_transforms, get_device, get_data_paths, load_cat_to_name
+from PIL import Image
+
+from common import data_transforms, get_data_paths, get_device, load_cat_to_name
 
 
 def get_input_args():
@@ -46,8 +51,7 @@ def get_input_args():
 
     parser.add_argument(
         "--gpu",
-        type=bool,
-        default=True,
+        action="store_true",
         help="Use GPU for training",
     )
 
@@ -110,7 +114,7 @@ def main():
     print("done")
 
     print("|- Load checkpoint", end="... ")
-    (model,) = load_checkpoint(args.model_path)
+    model, _ = load_checkpoint(args.model_path)
     model = model.to(device)
     print("done")
 
@@ -122,14 +126,14 @@ def main():
 
     # Process image
     image_path = args.image_path
-    if image_path == None:
-        _, _, test_dir = get_data_paths(data_dir)
+    if image_path is None:
+        _, _, test_dir = get_data_paths(args.data_dir)
         random_label_idx = random.choice(os.listdir(test_dir))
         random_image_file = random.choice(
             os.listdir("{}/{}".format(test_dir, random_label_idx))
         )
         image_path = os.path.join(test_dir, random_label_idx, random_image_file)
-    print("{}{}".format("(random) " if args.image_path == None else "", image_path))
+    print("{}{}".format("(random) " if args.image_path is None else "", image_path))
 
     print("|- Process image", end="... ")
     image = process_image(
@@ -137,7 +141,7 @@ def main():
     )
     print("done")
 
-    print("|- Do prediction", end="... ")
+    print("\\- Do prediction...")
     top_ps, top_labels, top_flowers = predict(model, device, image, labels, args.top_k)
 
     print("   Result:")

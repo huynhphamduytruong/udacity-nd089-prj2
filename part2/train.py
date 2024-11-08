@@ -1,22 +1,13 @@
 # train.py
 
 import argparse
-import json
-import warnings
 from collections import OrderedDict
 
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
 import torch
-import torch.nn.functional as F
-from common import get_device, get_transforms_and_loaders
-from numpy import array as npArr
-from PIL import Image
 from torch import nn, optim
-from torch import utils as TorchUtils
-from torchvision import datasets, models, transforms
 from torchvision.models import ResNet18_Weights, VGG19_Weights, resnet18, vgg19
+
+from common import get_device, get_transforms_and_loaders
 
 
 def get_input_args():
@@ -49,14 +40,12 @@ def get_input_args():
         default=0.003,
         help="Learning rate for the training. E.g 0.003",
     )
-    # parser.add_argument("--hidden_units", default=4096, type=int)
     parser.add_argument(
         "--hidden_units",
         type=int,
         default=512,
         help="Base number of hidden units for the classifier layers. E.g 512",
     )
-    parser.add_argument("--output_features", default=102, type=int)
     parser.add_argument(
         "--epochs",
         type=int,
@@ -66,8 +55,7 @@ def get_input_args():
 
     parser.add_argument(
         "--gpu",
-        type=bool,
-        default=True,
+        action="store_true",
         help="Use GPU for training",
     )
 
@@ -122,7 +110,7 @@ def get_optim_criterion(args, model):
     return optimizer, criterion
 
 
-def validate(model, criterion, loader):
+def validate(device, model, criterion, loader):
     running_loss = 0
     accuracy = 0
 
@@ -152,7 +140,7 @@ def validate(model, criterion, loader):
     return running_loss / len(loader), accuracy / len(loader)
 
 
-def train_model(args, device, model, loader, optim, criterion):
+def train_model(args, device, model, loader, optimizer, criterion):
     train_loader = loader["train"]
     valid_loader = loader["valid"]
 
@@ -170,13 +158,13 @@ def train_model(args, device, model, loader, optim, criterion):
         for images, labels in train_loader:
             steps += 1
             images, labels = images.to(device), labels.to(device)
-            optim.zero_grad()  # clear gradient in optimizer
+            optimizer.zero_grad()  # clear gradient in optimizer
 
             output = model.forward(images)
             loss = criterion(output, labels)
             train_loss += loss.item()
             loss.backward()
-            optim.step()
+            optimizer.step()
 
             if steps % print_every == 0 or steps == 1 or steps == len(train_loader):
                 print(
@@ -195,7 +183,7 @@ def train_model(args, device, model, loader, optim, criterion):
                 e + 1, epochs
             )
         )
-        valid_loss, accuracy = validate(model, criterion, valid_loader)
+        valid_loss, accuracy = validate(device, model, criterion, valid_loader)
         print(
             "|  |- [epoch #{:02}/{:02}: validate] >> valid_loss: {:.3f}, accuracy: {:.3f}".format(
                 e + 1, epochs, valid_loss, accuracy * 100
@@ -209,13 +197,13 @@ def train_model(args, device, model, loader, optim, criterion):
     return train_losses, valid_losses
 
 
-def save_checkpoint(args, model, dataset, optim, filename="checkpoint.pth"):
+def save_checkpoint(args, model, dataset, optimizer, filename="checkpoint.pth"):
     """Save checkpoint."""
     epochs = args.epochs
     learning_rate = args.learning_rate
     save_dir = args.save_dir
 
-    model.class_to_idx = image_datasets["train"].class_to_idx
+    model.class_to_idx = dataset["train"].class_to_idx
     checkpoint = {
         "epochs": epochs,
         "learning_rate": learning_rate,
@@ -224,7 +212,7 @@ def save_checkpoint(args, model, dataset, optim, filename="checkpoint.pth"):
         "classifier": model.classifier,
         "class_to_idx": model.class_to_idx,
         "model_state_dict": model.state_dict(),
-        "optim_state_dict": optim.state_dict(),
+        "optim_state_dict": optimizer.state_dict(),
         # 'criterion_state_dict': criterion.state_dict()
     }
 
@@ -237,9 +225,7 @@ def main():
     args = get_input_args()
 
     print("|- Build dataset, loaders", end="... ")
-    data_transforms, image_datasets, dataloaders, labels = get_transforms_and_loaders(
-        args.data_dir
-    )
+    _, image_datasets, dataloaders, _ = get_transforms_and_loaders(args.data_dir)
     print("done")
     print("|- Init device", end="... ")
     device = get_device(args.gpu)
@@ -248,17 +234,17 @@ def main():
     model = build_model(args)
     print("done")
     print("|- Build optim, criterion", end="... ")
-    optim, criterion = get_optim_criterion(args, model)
+    optimizer, criterion = get_optim_criterion(args, model)
     print("done")
     print("|- Training...")
 
     # Train model
-    train_model(args, device, model, dataloaders, optim, criterion)
+    train_model(args, device, model, dataloaders, optimizer, criterion)
 
     # Validate model
     print("|- Validating...")
     test_loader = dataloaders["test"]
-    valid_loss, accuracy = validate(model, criterion, test_loader)
+    valid_loss, accuracy = validate(device, model, criterion, test_loader)
     print(
         "|  |- [Test result] >> valid loss: {:.3f}, accuracy: {:.3f}".format(
             valid_loss, accuracy * 100
@@ -268,9 +254,9 @@ def main():
 
     # Save model
     print("|- Save checkpoint", end="... ")
-    save_checkpoint(args, model, image_datasets, optim)
-    print("|  \\- Save successfully")
-    pritn("|")
+    save_checkpoint(args, model, image_datasets, optimizer)
+    print("success")
+    print("|")
     print("\\- Train finished")
     return 0
 
